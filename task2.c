@@ -7,18 +7,24 @@
 
 #define MAX_WORD_LENGTH 100
 
+typedef struct WordCount {
+    char word[MAX_WORD_LENGTH];
+    int count;
+    struct WordCount *next;
+} WordCount;
+
 typedef struct {
     char *segment;
     int segment_size;
-    int *word_count;
+    WordCount **word_counts;
     pthread_mutex_t *mutex;
-} ThreadData;
+} ThreadData; 
 
 void *count_words(void *arg) {
     ThreadData *data = (ThreadData *)arg;
     char *segment = data->segment;
     int segment_size = data->segment_size;
-    int *word_count = data->word_count;
+    WordCount **word_counts = data->word_counts;
     pthread_mutex_t *mutex = data->mutex;
 
     char word[MAX_WORD_LENGTH];
@@ -29,7 +35,19 @@ void *count_words(void *arg) {
         } else if (index > 0) {
             word[index] = '\0';
             pthread_mutex_lock(mutex);
-            word_count[word[0] - 'a']++;
+            WordCount *wc = *word_counts;
+            while (wc != NULL && strcmp(wc->word, word) != 0) {
+                wc = wc->next;
+            }
+            if (wc == NULL) {
+                wc = (WordCount *)malloc(sizeof(WordCount));
+                strcpy(wc->word, word);
+                wc->count = 1;
+                wc->next = *word_counts;
+                *word_counts = wc;
+            } else {
+                wc->count++;
+            }
             pthread_mutex_unlock(mutex);
             index = 0;
         }
@@ -37,7 +55,19 @@ void *count_words(void *arg) {
     if (index > 0) {
         word[index] = '\0';
         pthread_mutex_lock(mutex);
-        word_count[word[0] - 'a']++;
+        WordCount *wc = *word_counts;
+        while (wc != NULL && strcmp(wc->word, word) != 0) {
+            wc = wc->next;
+        }
+        if (wc == NULL) {
+            wc = (WordCount *)malloc(sizeof(WordCount));
+            strcpy(wc->word, word);
+            wc->count = 1;
+            wc->next = *word_counts;
+            *word_counts = wc;
+        } else {
+            wc->count++;
+        }
         pthread_mutex_unlock(mutex);
     }
     return NULL;
@@ -67,47 +97,34 @@ int main(int argc, char *argv[]) {
     text[file_size] = '\0';
     fclose(file);
 
-    int segment_size = file_size / num_threads;
     pthread_t threads[num_threads];
     ThreadData thread_data[num_threads];
-    int word_count[26] = {0};
-    pthread_mutex_t mutex;
-    pthread_mutex_init(&mutex, NULL);
+    WordCount *word_counts = NULL;
+    pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
-    int start = 0;
+    int segment_size = file_size / num_threads;
     for (int i = 0; i < num_threads; i++) {
-        int end = start + segment_size;
-        if (i == num_threads - 1) {
-            end = file_size;
-        } else {
-            // Adjust end to avoid splitting words
-            while (end < file_size && isalpha(text[end])) {
-                end++;
-            }
-        }
-
-        thread_data[i].segment = text + start;
-        thread_data[i].segment_size = end - start;
-        thread_data[i].word_count = word_count;
+        thread_data[i].segment = text + i * segment_size;
+        thread_data[i].segment_size = (i == num_threads - 1) ? file_size - i * segment_size : segment_size;
+        thread_data[i].word_counts = &word_counts;
         thread_data[i].mutex = &mutex;
         pthread_create(&threads[i], NULL, count_words, &thread_data[i]);
-
-        start = end;
     }
 
     for (int i = 0; i < num_threads; i++) {
         pthread_join(threads[i], NULL);
     }
 
-    pthread_mutex_destroy(&mutex);
-    free(text);
-
-    printf("Word frequency count:\n");
-    for (int i = 0; i < 26; i++) {
-        if (word_count[i] > 0) {
-            printf("%c: %d\n", 'a' + i, word_count[i]);
-        }
+    WordCount *wc = word_counts;
+    while (wc != NULL) {
+        printf("%s: %d\n", wc->word, wc->count);
+        WordCount *tmp = wc;
+        wc = wc->next;
+        free(tmp);
     }
+
+    free(text);
+    pthread_mutex_destroy(&mutex);
 
     return 0;
 }
