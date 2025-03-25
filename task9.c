@@ -30,9 +30,13 @@ int compare_fcfs(const void *a, const void *b) {
 int compare_sjf(const void *a, const void *b) {
     struct process *p1 = (struct process *)a;
     struct process *p2 = (struct process *)b;
+
+    if (p1->arrival < p2->arrival)
+        return -1;
+    else if (p1->arrival > p2->arrival)
+        return 1;
     return p1->burst - p2->burst;
 }
-
 void fcfs(struct process *processes, int n){
     qsort(processes,n,sizeof(struct process),compare_fcfs);
     int current_time = 0;
